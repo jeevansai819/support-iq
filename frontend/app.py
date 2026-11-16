@@ -27,6 +27,37 @@ API_URL = "http://127.0.0.1:8000"
 
 APP_VERSION = "3.0.0"
 
+# ==========================================
+# AUTO-START BACKEND IF RUNNING IN CLOUD
+# ==========================================
+
+import socket
+import threading
+import time
+
+@st.cache_resource
+def ensure_backend_online():
+    # Check if port 8000 is already active
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex(('127.0.0.1', 8000)) == 0:
+                return True
+    except Exception:
+        pass
+
+    def run_uvicorn():
+        import uvicorn
+        from backend.main import app as fastapi_app
+        uvicorn.run(fastapi_app, host="127.0.0.1", port=8000, log_level="error")
+
+    t = threading.Thread(target=run_uvicorn, daemon=True)
+    t.start()
+    time.sleep(1.5)
+    return True
+
+ensure_backend_online()
+
 st.set_page_config(
     page_title="SupportIQ",
     page_icon="🎧",

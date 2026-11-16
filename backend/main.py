@@ -268,6 +268,48 @@ def delete_ticket(ticket_id: str):
     }
 
 
+def fallback_analysis(complaint: str, customer_name: str) -> dict:
+    text = complaint.lower()
+
+    if any(w in text for w in ["pay", "card", "transaction", "charge", "deduct"]):
+        category = "Payment"
+    elif any(w in text for w in ["refund", "return", "money back"]):
+        category = "Refund"
+    elif any(w in text for w in ["deliver", "shipping", "courier", "package", "order", "late", "delay"]):
+        category = "Delivery"
+    elif any(w in text for w in ["account", "login", "password", "sign in", "reset", "email"]):
+        category = "Account"
+    elif any(w in text for w in ["bug", "error", "crash", "app", "website", "broken", "fail"]):
+        category = "Technical Support"
+    else:
+        category = "Other"
+
+    negative_words = ["angry", "terrible", "worst", "bad", "horrible", "fail", "broken", "fraud", "hacked", "urgent"]
+    positive_words = ["thank", "good", "great", "helpful", "appreciate", "please"]
+    if any(w in text for w in negative_words):
+        sentiment = "Negative"
+    elif any(w in text for w in positive_words):
+        sentiment = "Positive"
+    else:
+        sentiment = "Neutral"
+
+    priority = classify_priority(complaint)
+    first_name = customer_name.strip().split()[0] if customer_name.strip() else "Valued Customer"
+    suggested_response = (
+        f"Hello {first_name}, thank you for contacting SupportIQ. "
+        f"We understand your concern regarding your {category.lower()} issue. "
+        f"Our support team has logged your complaint under {priority} priority and is actively reviewing it. "
+        f"We will update you shortly at your registered email address."
+    )
+
+    return {
+        "category": category,
+        "sentiment": sentiment,
+        "priority": priority,
+        "suggested_response": suggested_response
+    }
+
+
 # --------------------------------
 # AI COMPLAINT ANALYSIS + TICKET CREATION
 # --------------------------------
@@ -371,26 +413,28 @@ Use exactly this JSON structure:
 
     try:
 
-        response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-                "options": {
-                    "temperature": 0.1
-                }
-            },
-            timeout=180
-        )
-
-        response.raise_for_status()
-
-        result = response.json()
-        ai_text = result.get("response", "")
-
-        analysis = json.loads(ai_text)
+        response = None
+        try:
+            response = requests.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json",
+                    "options": {
+                        "temperature": 0.1
+                    }
+                },
+                timeout=5
+            )
+            response.raise_for_status()
+            result = response.json()
+            ai_text = result.get("response", "")
+            analysis = json.loads(ai_text)
+        except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError):
+            # Fall back to built-in smart analysis if Ollama is offline or unavailable
+            analysis = fallback_analysis(ticket.complaint, ticket.customer_name)
 
         # Validate AI response structure
 
